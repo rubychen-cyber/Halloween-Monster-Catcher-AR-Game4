@@ -1,0 +1,3712 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>萬聖節 AR 尋寶大作戰 - Halloween Monster Catcher</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <!-- jsQR -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+    <!-- QRCode Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        spooky: {
+                            purple: '#1c0a35',
+                            dark: '#0d021a',
+                            orange: '#ff6b00',
+                            green: '#00ff66',
+                            yellow: '#ffd700',
+                            red: '#e63946'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Noto+Sans+TC:wght@500;700;900&display=swap');
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #0d021a;
+            color: #ffffff;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+            min-height: 100dvh;
+        }
+
+        .font-spooky {
+            font-family: 'Creepster', cursive, 'Noto Sans TC', sans-serif;
+        }
+
+        .safe-padding {
+            padding-top: max(12px, env(safe-area-inset-top));
+            padding-bottom: max(16px, env(safe-area-inset-bottom));
+            padding-left: max(16px, env(safe-area-inset-left));
+            padding-right: max(16px, env(safe-area-inset-right));
+        }
+
+        /* =========================
+           CAMERA VIDEO
+        ========================= */
+
+        #arVideo {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+
+            /*
+             * 重要：
+             * 不使用 display:none，
+             * 避免部分 iPhone / WebView 在啟動 Camera 時
+             * video 維持黑畫面。
+             */
+            display: block;
+
+            object-fit: cover;
+            background: #000;
+
+            z-index: 1;
+
+            opacity: 0;
+            visibility: hidden;
+
+            transition:
+                opacity .35s ease,
+                visibility .35s ease;
+        }
+
+        #arVideo.camera-active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /*
+         * 相機尚未啟動時顯示的背景
+         */
+        #simulatedBg {
+            z-index: 0;
+        }
+
+        /* =========================
+           SCAN LASER
+        ========================= */
+
+        @keyframes scanBeam {
+            0% {
+                top: 4%;
+                opacity: 0.8;
+            }
+
+            50% {
+                top: 90%;
+                opacity: 1;
+            }
+
+            100% {
+                top: 4%;
+                opacity: 0.8;
+            }
+        }
+
+        .scan-laser-line {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                #00ff66,
+                #ffd700,
+                #00ff66,
+                transparent
+            );
+
+            box-shadow:
+                0 0 15px #00ff66,
+                0 0 8px #ffd700;
+
+            animation: scanBeam 2.3s ease-in-out infinite;
+        }
+
+        /* =========================
+           MONSTER FLOAT
+        ========================= */
+
+        @keyframes arFloat {
+            0%,
+            100% {
+                transform: translateY(0px) rotate(0deg) scale(1);
+            }
+
+            50% {
+                transform: translateY(-14px) rotate(2deg) scale(1.04);
+            }
+        }
+
+        .ar-monster-float {
+            animation: arFloat 3s ease-in-out infinite;
+        }
+
+        /* =========================
+           PUMPKIN
+        ========================= */
+
+        @keyframes ballGlow {
+            0%,
+            100% {
+                filter: drop-shadow(
+                    0 0 10px rgba(255, 107, 0, 0.7)
+                );
+
+                transform: scale(1);
+            }
+
+            50% {
+                filter: drop-shadow(
+                    0 0 25px rgba(255, 215, 0, 1)
+                );
+
+                transform: scale(1.06);
+            }
+        }
+
+        .pumpkin-glow {
+            animation: ballGlow 2s infinite ease-in-out;
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1c0a35;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #ff6b00;
+            border-radius: 4px;
+        }
+
+        /* =========================
+           CAMERA OFF STATE
+        ========================= */
+
+        .camera-off-content {
+            z-index: 5;
+        }
+
+        /* =========================
+           SCAN BUTTON
+        ========================= */
+
+        .start-camera-button {
+            min-height: 58px;
+            box-shadow:
+                0 0 25px rgba(0, 255, 102, .25),
+                0 8px 30px rgba(0, 0, 0, .4);
+        }
+    </style>
+</head>
+
+<body class="flex flex-col justify-between items-center relative bg-black">
+
+    <!-- =========================================================
+         HEADER
+    ========================================================== -->
+
+    <header
+        class="w-full max-w-md bg-spooky-purple/95 border-b border-orange-500/40 p-3 safe-padding flex justify-between items-center z-40 backdrop-blur-md shadow-xl shrink-0">
+
+        <div class="flex items-center space-x-2">
+
+            <div
+                class="w-9 h-9 rounded-full bg-spooky-orange/20 border border-spooky-orange flex items-center justify-center text-spooky-orange">
+
+                <i class="fa-solid fa-ghost text-xl"></i>
+
+            </div>
+
+            <div>
+
+                <h1 class="font-spooky text-xl text-spooky-orange tracking-wider leading-none">
+                    HALLOWEEN AR
+                </h1>
+
+                <p class="text-[11px] text-purple-300 font-bold">
+                    萬聖闖關尋寶
+                </p>
+
+            </div>
+
+        </div>
+
+        <div class="flex items-center gap-2">
+
+            <!-- QR Generator -->
+
+            <button
+                onclick="openQrModal()"
+                class="bg-purple-900/90 hover:bg-purple-800 border border-purple-400/50 rounded-full px-3 py-2 text-xs text-purple-100 flex items-center gap-1.5 active:scale-95 transition min-h-[42px] shadow-md">
+
+                <i class="fa-solid fa-qrcode text-spooky-yellow text-sm"></i>
+
+                <span class="font-bold">
+                    QR碼圖集
+                </span>
+
+            </button>
+
+            <!-- Handbook -->
+
+            <button
+                onclick="openHandbook()"
+                class="flex items-center bg-black/80 border border-orange-500/70 rounded-full px-3.5 py-2 shadow-md active:scale-95 transition min-h-[42px]">
+
+                <i class="fa-solid fa-book-skull text-spooky-yellow mr-1.5 text-sm"></i>
+
+                <span
+                    id="collectedCounter"
+                    class="text-sm font-black text-spooky-green">
+                    0
+                </span>
+
+                <span class="text-xs text-gray-400">
+                    /8
+                </span>
+
+            </button>
+
+        </div>
+
+    </header>
+
+
+    <!-- =========================================================
+         MAIN
+    ========================================================== -->
+
+    <main
+        class="w-full max-w-md flex-1 relative flex flex-col items-center justify-center overflow-hidden">
+
+        <!-- CAMERA -->
+
+        <video
+            id="arVideo"
+            playsinline
+            webkit-playsinline
+            autoplay
+            muted
+            disablepictureinpicture
+           ></video>
+
+
+        <!-- CAMERA OFF BACKGROUND -->
+
+        <div
+            id="simulatedBg"
+            class="absolute inset-0 bg-gradient-to-b from-spooky-dark via-spooky-purple to-black flex flex-col justify-between p-6">
+
+            <div class="flex justify-between items-start">
+
+                <div
+                    class="w-24 h-24 rounded-full bg-yellow-100 shadow-[0_0_60px_rgba(255,255,200,0.8)] opacity-80 flex items-center justify-center border-2 border-yellow-200/50">
+
+                    <div
+                        class="w-20 h-20 rounded-full bg-yellow-200/30">
+                    </div>
+
+                </div>
+
+                <div
+                    class="text-right text-purple-400/30 text-3xl space-y-3">
+
+                    <p>
+                        <i class="fa-solid fa-bat animate-pulse"></i>
+                    </p>
+
+                    <p class="mr-8">
+                        <i class="fa-solid fa-bat"></i>
+                    </p>
+
+                </div>
+
+            </div>
+
+            <div
+                class="text-center text-purple-900/30 text-7xl">
+
+                <i class="fa-solid fa-spaghetti-monster-flying"></i>
+
+            </div>
+
+        </div>
+
+
+        <!-- =====================================================
+             HOME / CAMERA START SCREEN
+        ====================================================== -->
+
+        <div
+            id="cameraStartScreen"
+            class="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 camera-off-content">
+
+            <div
+                class="w-full max-w-sm bg-black/70 backdrop-blur-xl border border-purple-400/40 rounded-3xl p-6 text-center shadow-2xl">
+
+                <div
+                    class="text-7xl mb-4 pumpkin-glow">
+                    🎃
+                </div>
+
+                <h2
+                    class="font-spooky text-3xl text-spooky-orange mb-2">
+                    萬聖節尋寶大作戰
+                </h2>
+
+                <p
+                    class="text-sm text-purple-200 leading-relaxed mb-6">
+
+                    現場尋找萬聖節 QR Code，
+                    <br>
+                    掃描後解鎖怪獸並進行捕捉！
+
+                </p>
+
+
+                <!-- START CAMERA BUTTON -->
+
+                <button
+                    onclick="startScanner()"
+                    class="start-camera-button w-full py-4 bg-gradient-to-r from-emerald-500 via-spooky-green to-lime-400 text-black font-black rounded-2xl text-base flex items-center justify-center gap-3 active:scale-95 transition border border-green-200">
+
+                    <i class="fa-solid fa-camera text-xl"></i>
+
+                    <span>
+                        開始掃描 QR Code
+                    </span>
+
+                </button>
+
+
+                <!-- PHOTO SCAN -->
+
+                <label
+                    class="mt-3 w-full py-3 bg-purple-900/90 hover:bg-purple-800 border border-purple-400/50 text-purple-100 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer">
+
+                    <i class="fa-solid fa-image"></i>
+
+                    <span>
+                        使用照片掃描 QR Code
+                    </span>
+
+                    <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onchange="handleFileInputScan(event)"
+                        class="hidden">
+
+                </label>
+
+
+                <!-- SIMULATION -->
+
+                <button
+                    onclick="openQuickTest()"
+                    class="mt-4 text-[11px] text-purple-300 underline">
+
+                    🧪 沒有 QR Code？開啟模擬測試
+
+                </button>
+
+            </div>
+
+        </div>
+
+
+        <!-- =====================================================
+             CAMERA STATUS
+        ====================================================== -->
+
+        <div
+            id="cameraStatus"
+            class="hidden absolute top-3 left-3 z-30 flex items-center gap-2 bg-black/80 backdrop-blur-md border border-white/20 px-3 py-1.5 rounded-full text-xs">
+
+            <span
+                id="camStatusDot"
+                class="w-2.5 h-2.5 rounded-full bg-yellow-400">
+            </span>
+
+            <span
+                id="camStatusText"
+                class="text-gray-200 font-bold">
+                準備中...
+            </span>
+
+        </div>
+
+
+        <!-- =====================================================
+             STOP CAMERA BUTTON
+        ====================================================== -->
+
+        <button
+            id="stopCameraButton"
+            onclick="stopScanner()"
+            class="hidden absolute top-3 right-3 z-30 bg-black/80 backdrop-blur-md border border-red-500/60 text-red-300 px-3 py-2 rounded-full text-xs font-bold">
+
+            <i class="fa-solid fa-camera-slash mr-1"></i>
+            停止掃描
+
+        </button>
+
+
+        <!-- =====================================================
+             SCANNER OVERLAY
+        ====================================================== -->
+
+        <div
+            id="scannerOverlay"
+            class="hidden absolute inset-0 z-20 flex flex-col items-center justify-between p-4 py-6">
+
+            <div
+                class="bg-black/85 backdrop-blur-md px-4 py-2 rounded-full border border-yellow-500/60 text-center shadow-lg">
+
+                <p
+                    class="text-xs font-extrabold text-spooky-yellow flex items-center justify-center gap-1.5">
+
+                    <i class="fa-solid fa-qrcode animate-bounce"></i>
+
+                    請將相機對準現場萬聖節 QR Code
+
+                </p>
+
+            </div>
+
+
+            <!-- VIEWFINDER -->
+
+            <div
+                class="relative w-64 h-64 border-2 border-spooky-green rounded-3xl shadow-[0_0_35px_rgba(0,255,102,0.35)] bg-black/20 overflow-hidden flex items-center justify-center">
+
+                <div
+                    class="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-spooky-green">
+                </div>
+
+                <div
+                    class="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-spooky-green">
+                </div>
+
+                <div
+                    class="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-spooky-green">
+                </div>
+
+                <div
+                    class="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-spooky-green">
+                </div>
+
+                <div class="scan-laser-line"></div>
+
+                <p
+                    class="text-xs text-gray-200 font-bold pointer-events-none text-center px-4 bg-black/60 py-2 rounded-xl border border-white/10">
+
+                    掃描框自動感應中...
+
+                </p>
+
+            </div>
+
+
+            <!-- PHOTO BUTTON -->
+
+            <div class="w-full max-w-xs">
+
+                <label
+                    class="w-full py-3 bg-gradient-to-r from-emerald-600 to-spooky-green text-black font-black rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg active:scale-95 transition cursor-pointer border border-green-300">
+
+                    <i class="fa-solid fa-camera text-base"></i>
+
+                    <span>
+                        📷 拍照掃描 QR Code
+                    </span>
+
+                    <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onchange="handleFileInputScan(event)"
+                        class="hidden">
+
+                </label>
+
+            </div>
+
+        </div>
+
+
+        <!-- =====================================================
+             SIMULATION PANEL
+        ====================================================== -->
+
+        <div
+            id="quickTestPanel"
+            class="hidden absolute inset-0 z-50 bg-black/90 flex items-center justify-center p-5">
+
+            <div
+                class="bg-gradient-to-b from-purple-950 to-black border border-purple-500/50 rounded-3xl p-5 w-full max-w-sm">
+
+                <div class="flex justify-between items-center mb-4">
+
+                    <h3 class="font-bold text-spooky-yellow">
+                        🧪 模擬 QR Code
+                    </h3>
+
+                    <button
+                        onclick="closeQuickTest()"
+                        class="w-9 h-9 rounded-full bg-purple-900 text-white">
+
+                        <i class="fa-solid fa-xmark"></i>
+
+                    </button>
+
+                </div>
+
+                <p class="text-xs text-purple-300 mb-4">
+                    點擊任一怪獸即可模擬掃描成功。
+                </p>
+
+                <div
+                    id="simulatedSelectGroup"
+                    class="grid grid-cols-4 gap-2">
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- =====================================================
+             AR CANVAS
+        ====================================================== -->
+
+        <canvas
+            id="arCanvas"
+            class="absolute inset-0 w-full h-full z-10 touch-none pointer-events-none opacity-0 transition-opacity duration-500">
+        </canvas>
+
+
+        <!-- PUMPKIN BALL -->
+
+        <div
+            id="pumpkinBallContainer"
+            class="hidden absolute bottom-20 z-30 flex flex-col items-center pointer-events-auto cursor-pointer">
+
+            <div
+                id="swipePrompt"
+                class="mb-2 bg-black/80 text-spooky-yellow text-xs font-bold px-3.5 py-1.5 rounded-full border border-yellow-500/50 shadow-lg animate-bounce flex items-center gap-1.5">
+
+                <i class="fa-solid fa-hand-pointer text-spooky-green"></i>
+
+                向上滑動 或 點擊拋球捕捉！
+
+            </div>
+
+            <div
+                id="pumpkinBall"
+                onclick="throwBall(true)"
+                class="w-[85px] h-[85px] text-[75px] flex items-center justify-center pumpkin-glow active:scale-90 transition transform">
+
+                🎃
+
+            </div>
+
+        </div>
+
+    </main>
+
+
+    <!-- =========================================================
+         FOOTER
+    ========================================================== -->
+
+    <footer
+        class="w-full max-w-md bg-gradient-to-t from-black via-black/90 to-transparent p-4 safe-padding z-40 flex flex-col items-center gap-2 shrink-0">
+
+        <!-- HOME FOOTER -->
+
+        <div
+            id="homeFooter"
+            class="w-full">
+
+            <div
+                class="py-3 bg-purple-950/90 border border-purple-500/50 rounded-2xl text-xs text-purple-200 font-bold flex items-center justify-center gap-2 shadow-lg">
+
+                <i class="fa-solid fa-map-location-dot text-spooky-yellow"></i>
+
+                準備好開始尋找萬聖節怪獸了嗎？
+
+            </div>
+
+        </div>
+
+
+        <!-- SCANNER FOOTER -->
+
+        <div
+            id="scannerFooter"
+            class="hidden w-full">
+
+            <div
+                class="py-3 bg-purple-950/90 border border-purple-500/50 rounded-2xl text-xs text-purple-200 font-bold flex items-center justify-center gap-2 shadow-lg">
+
+                <i class="fa-solid fa-radar text-spooky-green animate-spin"></i>
+
+                尋找現場萬聖節條碼解鎖怪獸...
+
+            </div>
+
+        </div>
+
+
+        <!-- CATCHING FOOTER -->
+
+        <div
+            id="catchingFooter"
+            class="hidden w-full grid grid-cols-5 gap-2">
+
+            <button
+                onclick="returnToScanner()"
+                class="col-span-2 py-3 bg-purple-900/90 hover:bg-purple-800 border border-purple-500/50 rounded-2xl text-xs font-bold text-purple-200 active:scale-95 transition flex items-center justify-center gap-1.5 shadow-md">
+
+                <i class="fa-solid fa-qrcode text-spooky-yellow"></i>
+
+                <span>
+                    重新掃碼
+                </span>
+
+            </button>
+
+
+            <button
+                onclick="throwBall(true)"
+                class="col-span-3 py-3 bg-gradient-to-r from-spooky-orange via-orange-500 to-yellow-500 text-black font-black rounded-2xl text-sm shadow-[0_0_20px_rgba(255,107,0,0.6)] border border-yellow-200 active:scale-95 transition flex items-center justify-center gap-2">
+
+                <i class="fa-solid fa-paper-plane"></i>
+
+                <span>
+                    拋出南瓜球
+                </span>
+
+            </button>
+
+        </div>
+
+
+        <div
+            class="w-full flex justify-between items-center px-1 text-[11px] text-gray-400 font-bold">
+
+            <span>
+                <i class="fa-solid fa-shield-halved text-spooky-green"></i>
+                規則：掃碼鎖定後方可抓寶
+            </span>
+
+            <button
+                onclick="openHandbook()"
+                class="text-spooky-yellow underline">
+
+                查看圖鑑
+
+            </button>
+
+        </div>
+
+    </footer>
+
+
+    <!-- =========================================================
+         MODAL 1
+    ========================================================== -->
+
+    <div
+        id="detectedModal"
+        class="hidden fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+
+        <div
+            class="bg-gradient-to-b from-spooky-purple to-black border-2 border-spooky-green rounded-3xl p-6 max-w-xs w-full text-center shadow-[0_0_50px_rgba(0,255,102,0.5)]">
+
+            <div
+                class="inline-block bg-spooky-green text-black font-black text-xs px-3.5 py-1 rounded-full mb-2">
+
+                🎯 成功解鎖 QR Code！
+
+            </div>
+
+            <div
+                id="detectedIcon"
+                class="text-7xl my-3 text-spooky-yellow ar-monster-float">
+
+                🎃
+
+            </div>
+
+            <h3
+                id="detectedName"
+                class="text-2xl font-black text-spooky-orange mb-1">
+
+                搗蛋南瓜精
+
+            </h3>
+
+            <p
+                id="detectedTag"
+                class="text-xs text-purple-300 mb-5">
+
+                已成功鎖定萬聖節怪獸！
+
+            </p>
+
+            <button
+                onclick="startCatchSequence()"
+                class="w-full py-3.5 bg-gradient-to-r from-spooky-green to-emerald-400 text-black font-black rounded-xl shadow-lg active:scale-95 transition text-sm">
+
+                <i class="fa-solid fa-crosshairs"></i>
+
+                解鎖並開始捕捉！
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         MODAL 2
+    ========================================================== -->
+
+    <div
+        id="catchModal"
+        class="hidden fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+
+        <div
+            class="bg-gradient-to-b from-spooky-purple to-black border-2 border-spooky-orange rounded-3xl p-6 max-w-xs w-full text-center">
+
+            <div
+                class="inline-block bg-spooky-yellow text-black font-black text-xs px-3.5 py-1 rounded-full mb-3">
+
+                🎉 成功捕獲並收入圖鑑！
+
+            </div>
+
+            <div
+                id="modalMonsterIcon"
+                class="text-7xl my-3 text-spooky-yellow ar-monster-float">
+
+                👻
+
+            </div>
+
+            <h3
+                id="modalMonsterName"
+                class="text-2xl font-black text-spooky-orange mb-1">
+
+                搗蛋南瓜精
+
+            </h3>
+
+            <p
+                id="modalMonsterTag"
+                class="text-xs text-purple-300 mb-3">
+            </p>
+
+            <p
+                id="modalMonsterDesc"
+                class="text-xs text-gray-300 bg-black/60 p-3 rounded-xl border border-purple-500/30 text-left leading-relaxed mb-5">
+            </p>
+
+            <button
+                onclick="finishCatchAndNextScan()"
+                class="w-full py-3.5 bg-gradient-to-r from-spooky-orange to-yellow-500 text-black font-black rounded-xl shadow-lg">
+
+                繼續掃描下一個 QR Code
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         HANDBOOK
+    ========================================================== -->
+
+    <div
+        id="handbookModal"
+        class="hidden fixed inset-0 bg-spooky-dark z-50 flex flex-col justify-between p-4 safe-padding overflow-hidden">
+
+        <div
+            class="flex justify-between items-center mb-3 shrink-0">
+
+            <h2
+                class="text-xl font-bold text-spooky-orange">
+
+                <i class="fa-solid fa-book-skull"></i>
+                萬聖怪獸圖鑑
+
+            </h2>
+
+            <button
+                onclick="closeHandbook()"
+                class="w-10 h-10 rounded-full bg-purple-900/80 text-gray-200 border border-purple-400/50">
+
+                <i class="fa-solid fa-xmark"></i>
+
+            </button>
+
+        </div>
+
+        <div
+            id="handbookGrid"
+            class="grid grid-cols-2 gap-3 flex-1 overflow-y-auto pr-1">
+        </div>
+
+        <div
+            class="pt-3 border-t border-purple-500/40 flex justify-between items-center shrink-0 mt-2">
+
+            <button
+                onclick="confirmReset()"
+                class="text-xs text-red-400 underline p-2">
+
+                <i class="fa-solid fa-trash-can mr-1"></i>
+                重置進度
+
+            </button>
+
+            <button
+                id="rewardBtn"
+                onclick="openVoucherModal()"
+                disabled
+                class="py-2.5 px-4 bg-gray-800 text-gray-500 rounded-xl text-xs font-bold cursor-not-allowed">
+
+                <i class="fa-solid fa-gift"></i>
+                兌換大獎 (0/8)
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         VOUCHER
+    ========================================================== -->
+
+    <div
+        id="voucherModal"
+        class="hidden fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-4 overflow-y-auto">
+
+        <div
+            class="bg-gradient-to-b from-purple-950 via-spooky-purple to-black border-2 border-yellow-400 rounded-3xl p-5 max-w-sm w-full text-center">
+
+            <button
+                onclick="closeVoucherModal()"
+                class="absolute top-3 right-3 text-gray-300 text-base w-9 h-9 rounded-full bg-black/60 border border-gray-600">
+
+                <i class="fa-solid fa-xmark"></i>
+
+            </button>
+
+            <div class="text-spooky-yellow text-4xl mb-1 mt-2">
+                🏆
+            </div>
+
+            <h3
+                class="text-xl font-black text-yellow-300">
+
+                恭喜集齊 8 大萬聖怪獸！
+
+            </h3>
+
+            <p
+                class="text-xs text-purple-300 mb-4">
+
+                請出示此畫面至萬聖節服務台兌換禮品
+
+            </p>
+
+            <div
+                class="bg-white text-black p-4 rounded-2xl shadow-inner border-2 border-dashed border-orange-500 relative mb-4">
+
+                <p
+                    class="text-[10px] text-gray-500 tracking-widest font-bold">
+
+                    HALLOWEEN REWARD VIP PASS
+
+                </p>
+
+                <h4
+                    class="text-lg font-extrabold text-purple-950 my-1">
+
+                    萬聖節現場大獎兌換券
+
+                </h4>
+
+                <div class="my-3 flex flex-col items-center">
+
+                    <div
+                        class="h-10 w-44 bg-slate-900 flex justify-between p-1 items-center gap-0.5 rounded">
+
+                        <div class="h-full w-1 bg-white"></div>
+                        <div class="h-full w-2 bg-white"></div>
+                        <div class="h-full w-0.5 bg-white"></div>
+                        <div class="h-full w-3 bg-white"></div>
+                        <div class="h-full w-1 bg-white"></div>
+                        <div class="h-full w-2 bg-white"></div>
+                        <div class="h-full w-0.5 bg-white"></div>
+                        <div class="h-full w-3.5 bg-white"></div>
+                        <div class="h-full w-1 bg-white"></div>
+
+                    </div>
+
+                    <span
+                        id="ticketCode"
+                        class="text-xs font-mono text-gray-700 mt-1 font-bold">
+
+                        HW-8888-2026
+
+                    </span>
+
+                </div>
+
+                <div
+                    id="redemptionStatus"
+                    class="text-xs font-bold text-green-700 bg-green-100 py-1 px-3 rounded-md inline-block">
+
+                    ● 尚未核銷
+
+                </div>
+
+            </div>
+
+
+            <div
+                class="bg-black/60 p-3 rounded-2xl border border-purple-500/40 text-left">
+
+                <p
+                    class="text-[11px] text-purple-300 font-bold mb-1.5">
+
+                    <i class="fa-solid fa-user-shield"></i>
+                    工作人員核銷
+
+                </p>
+
+                <div class="flex gap-2">
+
+                    <input
+                        id="staffPassInput"
+                        type="password"
+                        placeholder="輸入核銷密碼"
+                        class="bg-gray-900 border border-gray-700 text-xs rounded-xl p-2.5 flex-1 text-white">
+
+                    <button
+                        onclick="verifyRedemption()"
+                        class="bg-spooky-orange text-black font-extrabold text-xs px-3.5 rounded-xl">
+
+                        核銷
+
+                    </button>
+
+                </div>
+
+                <p class="text-[10px] text-gray-400 mt-1">
+                    預設密碼：
+                    <code class="text-yellow-400">8888</code>
+                    或
+                    <code class="text-yellow-400">halloween</code>
+                </p>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         QR GENERATOR
+    ========================================================== -->
+
+    <div
+        id="qrModal"
+        class="hidden fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex flex-col justify-between p-4 safe-padding overflow-hidden">
+
+        <div
+            class="flex justify-between items-center mb-2 shrink-0">
+
+            <div>
+
+                <h3
+                    class="text-lg font-bold text-spooky-yellow">
+
+                    <i class="fa-solid fa-qrcode mr-1.5"></i>
+                    現場 8 款 QR Code
+
+                </h3>
+
+                <p class="text-[11px] text-gray-300">
+
+                    可用另一台手機開啟，或列印貼在現場
+
+                </p>
+
+            </div>
+
+            <button
+                onclick="closeQrModal()"
+                class="w-10 h-10 rounded-full bg-purple-900/80 text-gray-200 border border-purple-400/50">
+
+                <i class="fa-solid fa-xmark"></i>
+
+            </button>
+
+        </div>
+
+        <div
+            id="qrContainerGrid"
+            class="grid grid-cols-2 gap-3 flex-1 overflow-y-auto p-1">
+        </div>
+
+        <div
+            class="pt-2 border-t border-purple-500/40 text-center shrink-0">
+
+            <button
+                onclick="closeQrModal()"
+                class="w-full py-2.5 bg-purple-900 text-purple-200 text-xs font-bold rounded-xl border border-purple-500/40">
+
+                返回
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================================
+         JAVASCRIPT
+    ========================================================== -->
+
+    <script>
+
+        /* =====================================================
+           1. MONSTERS
+        ===================================================== */
+
+        const MONSTERS = [
+
+            {
+                id: 1,
+                name: "搗蛋南瓜精",
+                type: "植物系",
+                icon: "🎃",
+                desc: "生活在南瓜田裡的精靈，每到萬聖節夜裡就會發出金黃色微光。",
+                tag: "「如果不給糖，我就要毀掉你的南瓜湯！」",
+                code: "MONSTER_1"
+            },
+
+            {
+                id: 2,
+                name: "幽靈小精靈",
+                type: "幽靈系",
+                icon: "👻",
+                desc: "喜歡躲在角落嚇唬路人，但其實自己比誰都膽小。",
+                tag: "「Boo！……哎呀被你發現了！」",
+                code: "MONSTER_2"
+            },
+
+            {
+                id: 3,
+                name: "萬聖骷髏人",
+                type: "亡靈系",
+                icon: "💀",
+                desc: "身體經常跳舞跳到散架，但隨時都能重新組裝起來。",
+                tag: "「我的關節有點乾咔響，但舞蹈不能停！」",
+                code: "MONSTER_3"
+            },
+
+            {
+                id: 4,
+                name: "吸血小蝙蝠",
+                type: "飛行系",
+                icon: "🦇",
+                desc: "最喜歡喝新鮮的紅石榴汁，總是倒掛在城堡屋簷下。",
+                tag: "「不要誤會，我真的只喝果汁啦！」",
+                code: "MONSTER_4"
+            },
+
+            {
+                id: 5,
+                name: "糖果巫婆",
+                type: "魔法系",
+                icon: "🧙‍♀️",
+                desc: "大鍋裡煮著熬煉了七七四十九天的五彩軟糖大餐。",
+                tag: "「嚐嚐我的萬聖特調魔法棒棒糖！」",
+                code: "MONSTER_5"
+            },
+
+            {
+                id: 6,
+                name: "黑貓魔法師",
+                type: "超能系",
+                icon: "🐈‍⬛",
+                desc: "擁有預知未來的魔法大眼，戴著比自己還大的巫師帽。",
+                tag: "「喵～這顆水晶球預測你今晚會拿到很多糖果！」",
+                code: "MONSTER_6"
+            },
+
+            {
+                id: 7,
+                name: "木乃伊寶寶",
+                type: "詛咒系",
+                icon: "🩹",
+                desc: "身上的繃帶總是解不開，走路一蹦一跳非常可愛。",
+                tag: "「誰能幫我把繃帶結解開一下？」",
+                code: "MONSTER_7"
+            },
+
+            {
+                id: 8,
+                name: "綠皮殭屍",
+                type: "毒素系",
+                icon: "🧟",
+                desc: "喜歡隨音樂跳跳舞，擁有極高防禦力的萬聖節大魔王。",
+                tag: "「今晚是我們的派對時間！」",
+                code: "MONSTER_8"
+            }
+
+        ];
+
+
+        /* =====================================================
+           2. STATE
+        ===================================================== */
+
+        let collectedSet = new Set();
+
+        let targetMonster = null;
+
+        let isRedeemed = false;
+
+        let cameraStream = null;
+
+        let isScanningActive = false;
+
+        let scanCanvas = document.createElement("canvas");
+
+        let scanCtx = scanCanvas.getContext("2d", {
+            willReadFrequently: true
+        });
+
+        let scanAnimationFrame = null;
+
+        // QR 掃描防抖 / 狀態鎖
+        let lastScannedText = "";
+        let lastScanTime = 0;
+        let isTransitioningToCatch = false;
+
+        let canvas;
+        let ctx;
+
+        let ball = {
+            x: 0,
+            y: 0,
+            radius: 36,
+            isThrown: false,
+            vx: 0,
+            vy: 0,
+            scale: 1,
+            state: "idle"
+        };
+
+        let monsterPos = {
+            x: 0,
+            y: 0,
+            scale: 1,
+            opacity: 1
+        };
+
+        let particles = [];
+
+
+        /* =====================================================
+           3. INITIALIZE
+        ===================================================== */
+
+        window.addEventListener("load", () => {
+
+            loadSavedProgress();
+
+            initCanvas();
+
+            setupSimulatedTestButtons();
+
+            updateProgressUI();
+
+            initTicketCode();
+
+            window.addEventListener("resize", handleResize);
+
+        });
+
+
+        function initTicketCode() {
+
+            if (!localStorage.getItem("hw_ar_ticket_code")) {
+
+                const code =
+                    "HW-" +
+                    Math.floor(1000 + Math.random() * 9000) +
+                    "-2026";
+
+                localStorage.setItem(
+                    "hw_ar_ticket_code",
+                    code
+                );
+
+            }
+
+            document.getElementById("ticketCode").innerText =
+                localStorage.getItem("hw_ar_ticket_code");
+
+        }
+
+
+        /* =====================================================
+           4. STORAGE
+        ===================================================== */
+
+        function loadSavedProgress() {
+
+            const saved =
+                localStorage.getItem("hw_ar_collected");
+
+            if (saved) {
+
+                try {
+
+                    collectedSet =
+                        new Set(JSON.parse(saved));
+
+                } catch (e) {
+
+                    collectedSet = new Set();
+
+                }
+
+            }
+
+            isRedeemed =
+                localStorage.getItem(
+                    "hw_ar_redeemed"
+                ) === "true";
+
+        }
+
+
+        function saveProgress() {
+
+            localStorage.setItem(
+                "hw_ar_collected",
+                JSON.stringify(
+                    Array.from(collectedSet)
+                )
+            );
+
+            localStorage.setItem(
+                "hw_ar_redeemed",
+                String(isRedeemed)
+            );
+
+        }
+
+
+        /* =====================================================
+           5. UI PROGRESS
+        ===================================================== */
+
+        function updateProgressUI() {
+
+            document.getElementById(
+                "collectedCounter"
+            ).innerText = collectedSet.size;
+
+
+            const rewardBtn =
+                document.getElementById("rewardBtn");
+
+
+            if (collectedSet.size >= 8) {
+
+                rewardBtn.disabled = false;
+
+                rewardBtn.className =
+                    "py-2.5 px-4 bg-gradient-to-r from-yellow-400 to-spooky-orange text-black font-extrabold rounded-xl text-xs transition flex items-center gap-1.5 shadow-lg animate-bounce cursor-pointer";
+
+                rewardBtn.innerHTML =
+                    '<i class="fa-solid fa-trophy"></i> 兌換大獎 (已集齊!)';
+
+            } else {
+
+                rewardBtn.disabled = true;
+
+                rewardBtn.className =
+                    "py-2.5 px-4 bg-gray-800 text-gray-500 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-not-allowed";
+
+                rewardBtn.innerHTML =
+                    `<i class="fa-solid fa-gift"></i> 兌換大獎 (${collectedSet.size}/8)`;
+
+            }
+
+
+            const statusBox =
+                document.getElementById(
+                    "redemptionStatus"
+                );
+
+
+            if (isRedeemed) {
+
+                statusBox.className =
+                    "text-xs font-bold text-red-700 bg-red-100 py-1 px-3 rounded-md inline-block";
+
+                statusBox.innerText =
+                    "✖ 已核銷 (已領取萬聖大獎)";
+
+            } else {
+
+                statusBox.className =
+                    "text-xs font-bold text-green-700 bg-green-100 py-1 px-3 rounded-md inline-block";
+
+                statusBox.innerText =
+                    "● 尚未核銷 (請向服務台出示)";
+
+            }
+
+        }
+
+
+        /* =====================================================
+           6. CAMERA START
+        ===================================================== */
+
+        async function startScanner() {
+
+            const video =
+                document.getElementById("arVideo");
+
+            const startScreen =
+                document.getElementById(
+                    "cameraStartScreen"
+                );
+
+            const scannerOverlay =
+                document.getElementById(
+                    "scannerOverlay"
+                );
+
+            const cameraStatus =
+                document.getElementById(
+                    "cameraStatus"
+                );
+
+            const stopButton =
+                document.getElementById(
+                    "stopCameraButton"
+                );
+
+            const scannerFooter =
+                document.getElementById(
+                    "scannerFooter"
+                );
+
+            const homeFooter =
+                document.getElementById(
+                    "homeFooter"
+                );
+
+
+            /*
+             * 確認瀏覽器支援
+             */
+
+            if (
+                !navigator.mediaDevices ||
+                !navigator.mediaDevices.getUserMedia
+            ) {
+
+                alert(
+                    "此瀏覽器不支援即時相機掃描。\n\n請使用「照片掃描 QR Code」功能。"
+                );
+
+                return;
+
+            }
+
+
+            /*
+             * HTTPS 檢查
+             */
+
+            if (
+                location.protocol !== "https:" &&
+                location.hostname !== "localhost" &&
+                location.hostname !== "127.0.0.1"
+            ) {
+
+                alert(
+                    "手機即時相機通常需要 HTTPS 網站才能正常使用。\n\n請使用 HTTPS 網址開啟本頁。"
+                );
+
+                return;
+
+            }
+
+
+            /*
+             * 顯示掃描 UI
+             */
+
+            startScreen.classList.add("hidden");
+
+            cameraStatus.classList.remove("hidden");
+
+            scannerOverlay.classList.remove("hidden");
+
+            stopButton.classList.remove("hidden");
+
+            scannerFooter.classList.remove("hidden");
+
+            homeFooter.classList.add("hidden");
+
+
+            setCameraStatus(
+                "yellow",
+                "正在開啟相機..."
+            );
+
+
+            try {
+
+                /*
+                 * 先清理舊相機
+                 */
+
+                stopCameraTracks();
+
+
+                /*
+                 * 第一次嘗試：
+                 * 後鏡頭
+                 */
+
+                let constraints = {
+                    audio: false,
+                    video: {
+                        facingMode: {
+                            ideal: "environment"
+                        },
+                        width: {
+                            ideal: 1280
+                        },
+                        height: {
+                            ideal: 720
+                        }
+                    }
+                };
+
+
+                cameraStream =
+                    await navigator.mediaDevices
+                        .getUserMedia(
+                            constraints
+                        );
+
+
+                video.srcObject =
+                    cameraStream;
+
+
+                /*
+                 * 非常重要：
+                 * 等 video metadata 完成
+                 */
+
+                await waitForVideoReady(
+                    video
+                );
+
+
+                /*
+                 * 明確呼叫 play()
+                 * 解決部分 iPhone/WebView 黑畫面
+                 */
+
+                await video.play();
+
+
+                /*
+                 * 顯示真正 camera
+                 */
+
+                video.classList.add(
+                    "camera-active"
+                );
+
+
+                /*
+                 * 隱藏背景
+                 */
+
+                document
+                    .getElementById("simulatedBg")
+                    .style.opacity = "0";
+
+
+                isScanningActive = true;
+
+
+                setCameraStatus(
+                    "green",
+                    "QR碼掃描器已啟動"
+                );
+
+
+                /*
+                 * 開始 QR 掃描
+                 */
+
+                stopScanLoop();
+
+                scanQrLoop();
+
+
+            } catch (error) {
+
+                console.error(
+                    "Camera error:",
+                    error
+                );
+
+
+                /*
+                 * 嘗試較簡單的設定
+                 */
+
+                try {
+
+                    stopCameraTracks();
+
+                    cameraStream =
+                        await navigator.mediaDevices
+                            .getUserMedia({
+                                video: true,
+                                audio: false
+                            });
+
+
+                    video.srcObject =
+                        cameraStream;
+
+
+                    await waitForVideoReady(
+                        video
+                    );
+
+                    await video.play();
+
+                    video.classList.add(
+                        "camera-active"
+                    );
+
+                    document
+                        .getElementById("simulatedBg")
+                        .style.opacity = "0";
+
+
+                    isScanningActive = true;
+
+
+                    setCameraStatus(
+                        "green",
+                        "相機已啟動"
+                    );
+
+
+                    stopScanLoop();
+
+                    scanQrLoop();
+
+
+                } catch (fallbackError) {
+
+                    console.error(
+                        "Fallback camera error:",
+                        fallbackError
+                    );
+
+                    handleCameraError(
+                        fallbackError
+                    );
+
+                }
+
+            }
+
+        }
+
+
+        /* =====================================================
+           7. WAIT VIDEO READY
+        ===================================================== */
+
+        function waitForVideoReady(video) {
+
+            return new Promise(
+                (resolve, reject) => {
+
+                    if (
+                        video.readyState >= 2 &&
+                        video.videoWidth > 0
+                    ) {
+
+                        resolve();
+
+                        return;
+
+                    }
+
+
+                    const timeout =
+                        setTimeout(() => {
+
+                            reject(
+                                new Error(
+                                    "Camera video timeout"
+                                )
+                            );
+
+                        }, 8000);
+
+
+                    video.onloadedmetadata =
+                        () => {
+
+                            clearTimeout(
+                                timeout
+                            );
+
+                            if (
+                                video.videoWidth > 0
+                            ) {
+
+                                resolve();
+
+                            } else {
+
+                                reject(
+                                    new Error(
+                                        "Video has no dimensions"
+                                    )
+                                );
+
+                            }
+
+                        };
+
+
+                }
+            );
+
+        }
+
+
+        /* =====================================================
+           8. CAMERA ERROR
+        ===================================================== */
+
+        function handleCameraError(error) {
+
+            stopScanner();
+
+            let message =
+                "無法開啟手機相機。\n\n";
+
+            if (
+                error &&
+                (
+                    error.name ===
+                    "NotAllowedError" ||
+                    error.name ===
+                    "PermissionDeniedError"
+                )
+            ) {
+
+                message +=
+                    "請允許瀏覽器使用相機權限。\n\n" +
+                    "如果之前按過「拒絕」，請到手機瀏覽器設定重新允許相機。";
+
+            } else if (
+                error &&
+                error.name ===
+                "NotFoundError"
+            ) {
+
+                message +=
+                    "找不到可用的相機。";
+
+            } else {
+
+                message +=
+                    "請確認使用 HTTPS 網址開啟，" +
+                    "或改用「拍照掃描 QR Code」。";
+
+            }
+
+
+            alert(message);
+
+        }
+
+
+        function setCameraStatus(
+            color,
+            text
+        ) {
+
+            const dot =
+                document.getElementById(
+                    "camStatusDot"
+                );
+
+            const label =
+                document.getElementById(
+                    "camStatusText"
+                );
+
+
+            const colors = {
+
+                green:
+                    "w-2.5 h-2.5 rounded-full bg-spooky-green animate-pulse",
+
+                yellow:
+                    "w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse",
+
+                red:
+                    "w-2.5 h-2.5 rounded-full bg-red-500",
+
+            };
+
+
+            dot.className =
+                colors[color] ||
+                colors.yellow;
+
+            label.innerText = text;
+
+        }
+
+
+        /* =====================================================
+           9. STOP CAMERA
+        ===================================================== */
+
+        function stopCameraTracks() {
+
+            if (cameraStream) {
+
+                cameraStream
+                    .getTracks()
+                    .forEach(track => {
+
+                        track.stop();
+
+                    });
+
+                cameraStream = null;
+
+            }
+
+        }
+
+
+        function stopScanLoop() {
+
+            isScanningActive = false;
+
+            if (scanAnimationFrame) {
+
+                cancelAnimationFrame(
+                    scanAnimationFrame
+                );
+
+                scanAnimationFrame = null;
+
+            }
+
+        }
+
+
+        function stopScanner() {
+
+            stopScanLoop();
+
+            stopCameraTracks();
+
+
+            const video =
+                document.getElementById(
+                    "arVideo"
+                );
+
+
+            video.pause();
+
+            video.srcObject = null;
+
+            video.classList.remove(
+                "camera-active"
+            );
+
+
+            document
+                .getElementById("scannerOverlay")
+                .classList.add("hidden");
+
+
+            document
+                .getElementById("cameraStatus")
+                .classList.add("hidden");
+
+
+            document
+                .getElementById("stopCameraButton")
+                .classList.add("hidden");
+
+
+            document
+                .getElementById("scannerFooter")
+                .classList.add("hidden");
+
+
+            document
+                .getElementById("homeFooter")
+                .classList.remove("hidden");
+
+
+            document
+                .getElementById("cameraStartScreen")
+                .classList.remove("hidden");
+
+
+            document
+                .getElementById("simulatedBg")
+                .style.opacity = "1";
+
+
+            isScanningActive = false;
+
+        }
+
+
+        /* =====================================================
+           10. QR SCANNER
+        ===================================================== */
+
+        function scanQrLoop() {
+
+            if (!isScanningActive || isTransitioningToCatch) {
+                return;
+            }
+
+            const video = document.getElementById("arVideo");
+
+            if (
+                video.readyState >= 2 &&
+                video.videoWidth > 0 &&
+                video.videoHeight > 0
+            ) {
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+
+                if (scanCanvas.width !== vw || scanCanvas.height !== vh) {
+                    scanCanvas.width = vw;
+                    scanCanvas.height = vh;
+                }
+
+                scanCtx.drawImage(video, 0, 0, vw, vh);
+
+                let code = null;
+
+                try {
+                    const imageData = scanCtx.getImageData(0, 0, vw, vh);
+
+                    code = jsQR(
+                        imageData.data,
+                        imageData.width,
+                        imageData.height,
+                        { inversionAttempts: "attemptBoth" }
+                    );
+                } catch (error) {
+                    console.warn("Full-frame QR scan failed:", error);
+                }
+
+                // 完整畫面沒找到時，再掃中央區域，提高小 QR 的成功率。
+                if (!code) {
+                    const cropW = Math.floor(vw * 0.70);
+                    const cropH = Math.floor(vh * 0.70);
+                    const sx = Math.floor((vw - cropW) / 2);
+                    const sy = Math.floor((vh - cropH) / 2);
+
+                    const cropCanvas = document.createElement("canvas");
+                    cropCanvas.width = cropW;
+                    cropCanvas.height = cropH;
+
+                    const cropCtx = cropCanvas.getContext("2d", {
+                        willReadFrequently: true
+                    });
+
+                    cropCtx.drawImage(
+                        video,
+                        sx, sy, cropW, cropH,
+                        0, 0, cropW, cropH
+                    );
+
+                    try {
+                        const cropData = cropCtx.getImageData(
+                            0, 0, cropW, cropH
+                        );
+
+                        code = jsQR(
+                            cropData.data,
+                            cropData.width,
+                            cropData.height,
+                            { inversionAttempts: "attemptBoth" }
+                        );
+                    } catch (error) {
+                        console.warn("Center QR scan failed:", error);
+                    }
+                }
+
+                if (code && code.data) {
+                    handleScannedCode(code.data);
+                    return;
+                }
+            }
+
+            scanAnimationFrame = requestAnimationFrame(scanQrLoop);
+        }
+
+
+        /* =====================================================
+           11. PHOTO SCAN        /* =====================================================
+           11. PHOTO SCAN
+        ===================================================== */
+
+        function handleFileInputScan(event) {
+
+            const file =
+                event.target.files &&
+                event.target.files[0];
+
+
+            if (!file) {
+                return;
+            }
+
+
+            const reader =
+                new FileReader();
+
+
+            reader.onload =
+                function(e) {
+
+                    const img =
+                        new Image();
+
+
+                    img.onload =
+                        function() {
+
+                            scanCanvas.width =
+                                img.naturalWidth ||
+                                img.width;
+
+                            scanCanvas.height =
+                                img.naturalHeight ||
+                                img.height;
+
+
+                            scanCtx.drawImage(
+                                img,
+                                0,
+                                0,
+                                scanCanvas.width,
+                                scanCanvas.height
+                            );
+
+
+                            const imageData =
+                                scanCtx.getImageData(
+                                    0,
+                                    0,
+                                    scanCanvas.width,
+                                    scanCanvas.height
+                                );
+
+
+                            const code =
+                                jsQR(
+                                    imageData.data,
+                                    imageData.width,
+                                    imageData.height,
+                                    {
+                                        inversionAttempts:
+                                            "attemptBoth"
+                                    }
+                                );
+
+
+                            if (
+                                code &&
+                                code.data
+                            ) {
+
+                                handleScannedCode(
+                                    code.data
+                                );
+
+                            } else {
+
+                                alert(
+                                    "⚠️ 未偵測到有效 QR Code。\n\n請讓 QR Code 完整出現在照片中央，並避免反光或太模糊。"
+                                );
+
+                            }
+
+                        };
+
+
+                    img.onerror =
+                        function() {
+
+                            alert(
+                                "無法讀取這張照片。"
+                            );
+
+                        };
+
+
+                    img.src =
+                        e.target.result;
+
+                };
+
+
+            reader.readAsDataURL(file);
+
+
+            /*
+             * 清空 input
+             * 讓使用者可以再次選同一張照片
+             */
+
+            event.target.value = "";
+
+        }
+
+
+        /* =====================================================
+           12. HANDLE QR
+        ===================================================== */
+
+        function handleScannedCode(scannedText) {
+
+            if (!scannedText || isTransitioningToCatch) {
+                return;
+            }
+
+            const rawText = String(scannedText).trim();
+            const normalizedText = rawText
+                .replace(/\s+/g, "")
+                .toUpperCase();
+
+            let foundMonster = null;
+
+            for (const monster of MONSTERS) {
+                const code = monster.code.toUpperCase();
+
+                if (
+                    normalizedText.includes(code) ||
+                    normalizedText.includes(`MONSTER_${monster.id}`) ||
+                    normalizedText.includes(`MONSTER-${monster.id}`) ||
+                    normalizedText.includes(`ID=${monster.id}`) ||
+                    normalizedText.includes(`ID%3D${monster.id}`)
+                ) {
+                    foundMonster = monster;
+                    break;
+                }
+            }
+
+            // 容錯：MONSTER_1 / MONSTER-1
+            if (!foundMonster) {
+                const match = normalizedText.match(/MONSTER[_-]?([1-8])/);
+
+                if (match) {
+                    const id = parseInt(match[1], 10);
+                    foundMonster = MONSTERS.find(
+                        monster => monster.id === id
+                    );
+                }
+            }
+
+            if (!foundMonster) {
+                console.warn("QR 已辨識，但不是本遊戲 QR：", rawText);
+
+                setCameraStatus(
+                    "yellow",
+                    "已讀取 QR，但不是本遊戲的 QR Code"
+                );
+
+                setTimeout(() => {
+                    if (isScanningActive) {
+                        setCameraStatus(
+                            "green",
+                            "QR碼掃描器已啟動"
+                        );
+                    }
+                }, 1600);
+
+                scanAnimationFrame = requestAnimationFrame(scanQrLoop);
+                return;
+            }
+
+            // 防止同一張 QR 在連續影格重複觸發。
+            const now = Date.now();
+
+            if (
+                normalizedText === lastScannedText &&
+                now - lastScanTime < 1800
+            ) {
+                return;
+            }
+
+            lastScannedText = normalizedText;
+            lastScanTime = now;
+
+            isScanningActive = false;
+            isTransitioningToCatch = true;
+
+            if (scanAnimationFrame) {
+                cancelAnimationFrame(scanAnimationFrame);
+                scanAnimationFrame = null;
+            }
+
+            targetMonster = foundMonster;
+
+            if (navigator.vibrate) {
+                navigator.vibrate([100, 50, 100]);
+            }
+
+            document.getElementById("detectedIcon").innerText =
+                targetMonster.icon;
+
+            document.getElementById("detectedName").innerText =
+                targetMonster.name;
+
+            document.getElementById("detectedTag").innerText =
+                `已掃描成功！解鎖第 #${targetMonster.id} 號怪獸`;
+
+            const detectedModal =
+                document.getElementById("detectedModal");
+
+            detectedModal.classList.remove("hidden");
+
+            setCameraStatus(
+                "green",
+                `QR 掃描成功：${targetMonster.name}`
+            );
+
+            /*
+             * 原版掃到 QR 後會停在成功彈窗，
+             * 必須再按一次按鈕才會進抓寶。
+             *
+             * 現在掃到有效 QR 後約 0.7 秒自動進入抓寶，
+             * 同時保留原本的「解鎖並開始捕捉」按鈕。
+             */
+            setTimeout(() => {
+                if (
+                    targetMonster &&
+                    isTransitioningToCatch &&
+                    !detectedModal.classList.contains("hidden")
+                ) {
+                    startCatchSequence();
+                }
+            }, 700);
+        }
+
+
+        /* =====================================================
+           13. SIMULATE QR        /* =====================================================
+           13. SIMULATE QR
+        ===================================================== */
+
+        function setupSimulatedTestButtons() {
+
+            const group =
+                document.getElementById(
+                    "simulatedSelectGroup"
+                );
+
+
+            group.innerHTML = "";
+
+
+            MONSTERS.forEach(
+                monster => {
+
+                    const button =
+                        document.createElement(
+                            "button"
+                        );
+
+
+                    button.onclick =
+                        () => {
+
+                            closeQuickTest();
+
+                            simulateQrScan(
+                                monster.id
+                            );
+
+                        };
+
+
+                    button.className =
+                        "py-2 bg-purple-900/80 border border-purple-400/40 rounded-lg text-xs text-purple-100 font-bold active:scale-95 transition";
+
+
+                    button.innerHTML =
+                        `${monster.icon} #${monster.id}`;
+
+
+                    group.appendChild(
+                        button
+                    );
+
+                }
+            );
+
+        }
+
+
+        function openQuickTest() {
+
+            document
+                .getElementById(
+                    "quickTestPanel"
+                )
+                .classList.remove(
+                    "hidden"
+                );
+
+        }
+
+
+        function closeQuickTest() {
+
+            document
+                .getElementById(
+                    "quickTestPanel"
+                )
+                .classList.add(
+                    "hidden"
+                );
+
+        }
+
+
+        function simulateQrScan(id) {
+
+            const monster =
+                MONSTERS.find(
+                    m => m.id === id
+                );
+
+
+            if (monster) {
+
+                handleScannedCode(
+                    monster.code
+                );
+
+            }
+
+        }
+
+
+        /* =====================================================
+           14. START CATCH
+        ===================================================== */
+
+        function startCatchSequence() {
+
+            if (!targetMonster) {
+                console.warn("沒有 targetMonster，無法進入抓寶畫面。");
+                return;
+            }
+
+            stopScanLoop();
+
+            isScanningActive = false;
+            isTransitioningToCatch = false;
+
+            document
+                .getElementById("detectedModal")
+                .classList.add("hidden");
+
+            document
+                .getElementById("scannerOverlay")
+                .classList.add("hidden");
+
+            document
+                .getElementById("scannerFooter")
+                .classList.add("hidden");
+
+            document
+                .getElementById("catchingFooter")
+                .classList.remove("hidden");
+
+            document
+                .getElementById("pumpkinBallContainer")
+                .classList.remove("hidden");
+
+            const canvasEl =
+                document.getElementById("arCanvas");
+
+            canvasEl.classList.remove(
+                "opacity-0",
+                "pointer-events-none"
+            );
+
+            canvasEl.style.opacity = "1";
+
+            setCameraStatus(
+                "green",
+                `抓寶模式：${targetMonster.name}`
+            );
+
+            resetBallAndMonster();
+        }
+
+
+        /* =====================================================
+           15. RETURN SCANNER        /* =====================================================
+           15. RETURN SCANNER
+        ===================================================== */
+
+        function returnToScanner() {
+
+            isTransitioningToCatch = false;
+            lastScannedText = "";
+            lastScanTime = 0;
+
+            targetMonster = null;
+
+            /*
+             * 如果相機已經存在，就直接繼續掃描
+             */
+
+            if (cameraStream) {
+
+                isScanningActive = true;
+
+                document
+                    .getElementById(
+                        "scannerOverlay"
+                    )
+                    .classList.remove(
+                        "hidden"
+                    );
+
+                document
+                    .getElementById(
+                        "scannerFooter"
+                    )
+                    .classList.remove(
+                        "hidden"
+                    );
+
+                document
+                    .getElementById(
+                        "catchingFooter"
+                    )
+                    .classList.add(
+                        "hidden"
+                    );
+
+                document
+                    .getElementById(
+                        "pumpkinBallContainer"
+                    )
+                    .classList.add(
+                        "hidden"
+                    );
+
+
+                const canvasEl =
+                    document.getElementById(
+                        "arCanvas"
+                    );
+
+
+                canvasEl.classList.add(
+                    "opacity-0",
+                    "pointer-events-none"
+                );
+
+
+                stopScanLoop();
+
+                scanQrLoop();
+
+                return;
+
+            }
+
+
+            /*
+             * 如果沒有相機
+             * 回到首頁
+             */
+
+            stopScanner();
+
+        }
+
+
+        /* =====================================================
+           16. CANVAS
+        ===================================================== */
+
+        function initCanvas() {
+
+            canvas =
+                document.getElementById(
+                    "arCanvas"
+                );
+
+
+            ctx =
+                canvas.getContext(
+                    "2d"
+                );
+
+
+            handleResize();
+
+            setupTouchEvents();
+
+            startLoop();
+
+        }
+
+
+        function handleResize() {
+
+            if (!canvas) {
+                return;
+            }
+
+
+            const rect =
+                canvas.parentElement
+                    .getBoundingClientRect();
+
+
+            canvas.width =
+                Math.max(
+                    1,
+                    Math.floor(rect.width)
+                );
+
+
+            canvas.height =
+                Math.max(
+                    1,
+                    Math.floor(rect.height)
+                );
+
+
+            if (targetMonster) {
+
+                resetBallAndMonster();
+
+            }
+
+        }
+
+
+        function resetBallAndMonster() {
+
+            if (!canvas) {
+                return;
+            }
+
+
+            ball.x =
+                canvas.width / 2;
+
+            ball.y =
+                canvas.height - 110;
+
+            ball.radius =
+                36;
+
+            ball.isThrown =
+                false;
+
+            ball.vx =
+                0;
+
+            ball.vy =
+                0;
+
+            ball.scale =
+                1;
+
+            ball.state =
+                "idle";
+
+
+            monsterPos.x =
+                canvas.width / 2;
+
+            monsterPos.y =
+                canvas.height * 0.35;
+
+            monsterPos.opacity =
+                1;
+
+            monsterPos.scale =
+                1;
+
+
+            const container =
+                document.getElementById(
+                    "pumpkinBallContainer"
+                );
+
+
+            if (container) {
+
+                container.style.display =
+                    "flex";
+
+            }
+
+        }
+
+
+        /* =====================================================
+           17. THROW BALL
+        ===================================================== */
+
+        function throwBall(
+            direct = false
+        ) {
+
+            if (
+                ball.isThrown ||
+                !targetMonster
+            ) {
+
+                return;
+
+            }
+
+
+            ball.isThrown =
+                true;
+
+            ball.state =
+                "throwing";
+
+
+            if (direct) {
+
+                ball.vx =
+                    (Math.random() - 0.5) *
+                    1.5;
+
+                ball.vy =
+                    -16;
+
+            }
+
+        }
+
+
+        /* =====================================================
+           18. TOUCH
+        ===================================================== */
+
+        function setupTouchEvents() {
+
+            let startY = 0;
+
+            let startX = 0;
+
+
+            window.addEventListener(
+                "touchstart",
+                event => {
+
+                    if (
+                        ball.isThrown ||
+                        !targetMonster
+                    ) {
+
+                        return;
+
+                    }
+
+
+                    const touch =
+                        event.touches[0];
+
+
+                    startX =
+                        touch.clientX;
+
+                    startY =
+                        touch.clientY;
+
+                },
+                {
+                    passive: true
+                }
+            );
+
+
+            window.addEventListener(
+                "touchend",
+                event => {
+
+                    if (
+                        ball.isThrown ||
+                        !targetMonster
+                    ) {
+
+                        return;
+
+                    }
+
+
+                    const touch =
+                        event.changedTouches[0];
+
+
+                    const deltaY =
+                        touch.clientY -
+                        startY;
+
+
+                    const deltaX =
+                        touch.clientX -
+                        startX;
+
+
+                    if (
+                        deltaY < -25
+                    ) {
+
+                        ball.isThrown =
+                            true;
+
+                        ball.state =
+                            "throwing";
+
+                        ball.vx =
+                            deltaX * 0.12;
+
+                        ball.vy =
+                            Math.max(
+                                deltaY * 0.22,
+                                -22
+                            );
+
+                    }
+
+                },
+                {
+                    passive: true
+                }
+            );
+
+        }
+
+
+        /* =====================================================
+           19. PARTICLES
+        ===================================================== */
+
+        function createExplosion(
+            x,
+            y,
+            color,
+            count = 25
+        ) {
+
+            for (
+                let i = 0;
+                i < count;
+                i++
+            ) {
+
+                particles.push({
+
+                    x,
+                    y,
+
+                    vx:
+                        (Math.random() - 0.5) *
+                        10,
+
+                    vy:
+                        (Math.random() - 0.5) *
+                        10,
+
+                    radius:
+                        Math.random() * 5 + 2,
+
+                    color,
+
+                    life: 1
+
+                });
+
+            }
+
+        }
+
+
+        /* =====================================================
+           20. RENDER LOOP
+        ===================================================== */
+
+        function startLoop() {
+
+            let floatAngle = 0;
+
+
+            function render() {
+
+                if (!ctx) {
+                    return;
+                }
+
+
+                ctx.clearRect(
+                    0,
+                    0,
+                    canvas.width,
+                    canvas.height
+                );
+
+
+                floatAngle += 0.035;
+
+
+                const floatOffset =
+                    Math.sin(
+                        floatAngle
+                    ) * 12;
+
+
+                /*
+                 * Monster
+                 */
+
+                if (
+                    targetMonster &&
+                    monsterPos.opacity > 0
+                ) {
+
+                    ctx.save();
+
+
+                    ctx.globalAlpha =
+                        monsterPos.opacity;
+
+
+                    ctx.translate(
+                        monsterPos.x,
+                        monsterPos.y +
+                        floatOffset
+                    );
+
+
+                    ctx.scale(
+                        monsterPos.scale,
+                        monsterPos.scale
+                    );
+
+
+                    ctx.beginPath();
+
+                    ctx.arc(
+                        0,
+                        0,
+                        52,
+                        0,
+                        Math.PI * 2
+                    );
+
+
+                    ctx.fillStyle =
+                        "rgba(255,107,0,.22)";
+
+
+                    ctx.fill();
+
+
+                    ctx.font =
+                        "76px serif";
+
+
+                    ctx.textAlign =
+                        "center";
+
+
+                    ctx.textBaseline =
+                        "middle";
+
+
+                    ctx.fillText(
+                        targetMonster.icon,
+                        0,
+                        0
+                    );
+
+
+                    ctx.font =
+                        "bold 13px Noto Sans TC, sans-serif";
+
+
+                    ctx.fillStyle =
+                        "#ffffff";
+
+
+                    ctx.shadowColor =
+                        "#ff6b00";
+
+
+                    ctx.shadowBlur =
+                        10;
+
+
+                    ctx.fillText(
+                        targetMonster.name,
+                        0,
+                        52
+                    );
+
+
+                    ctx.restore();
+
+                }
+
+
+                /*
+                 * Ball physics
+                 */
+
+                if (
+                    ball.isThrown &&
+                    ball.state === "throwing"
+                ) {
+
+                    ball.x +=
+                        ball.vx;
+
+                    ball.y +=
+                        ball.vy;
+
+                    ball.vy +=
+                        0.45;
+
+                    ball.scale *=
+                        0.96;
+
+
+                    const monsterY =
+                        monsterPos.y +
+                        floatOffset;
+
+
+                    const distance =
+                        Math.hypot(
+                            ball.x -
+                            monsterPos.x,
+
+                            ball.y -
+                            monsterY
+                        );
+
+
+                    if (
+                        distance < 75
+                    ) {
+
+                        ball.state =
+                            "hit";
+
+
+                        createExplosion(
+                            monsterPos.x,
+                            monsterY,
+                            "#ff6b00",
+                            30
+                        );
+
+
+                        onCatchSuccess();
+
+                    } else if (
+                        ball.y < -100 ||
+                        ball.y >
+                        canvas.height + 100
+                    ) {
+
+                        ball.state =
+                            "miss";
+
+
+                        setTimeout(
+                            resetBallAndMonster,
+                            700
+                        );
+
+                    }
+
+                }
+
+
+                /*
+                 * Ball
+                 */
+
+                if (
+                    ball.isThrown &&
+                    ball.state === "throwing"
+                ) {
+
+                    ctx.save();
+
+
+                    ctx.translate(
+                        ball.x,
+                        ball.y
+                    );
+
+
+                    ctx.scale(
+                        ball.scale,
+                        ball.scale
+                    );
+
+
+                    ctx.font =
+                        `${ball.radius * 2}px serif`;
+
+
+                    ctx.textAlign =
+                        "center";
+
+
+                    ctx.textBaseline =
+                        "middle";
+
+
+                    ctx.fillText(
+                        "🎃",
+                        0,
+                        0
+                    );
+
+
+                    ctx.restore();
+
+                }
+
+
+                /*
+                 * Particles
+                 */
+
+                for (
+                    let i =
+                        particles.length - 1;
+                    i >= 0;
+                    i--
+                ) {
+
+                    const particle =
+                        particles[i];
+
+
+                    particle.x +=
+                        particle.vx;
+
+                    particle.y +=
+                        particle.vy;
+
+                    particle.vy +=
+                        0.15;
+
+                    particle.life -=
+                        0.035;
+
+
+                    ctx.beginPath();
+
+
+                    ctx.arc(
+                        particle.x,
+                        particle.y,
+                        particle.radius,
+                        0,
+                        Math.PI * 2
+                    );
+
+
+                    ctx.fillStyle =
+                        particle.color;
+
+
+                    ctx.globalAlpha =
+                        Math.max(
+                            particle.life,
+                            0
+                        );
+
+
+                    ctx.fill();
+
+
+                    ctx.globalAlpha = 1;
+
+
+                    if (
+                        particle.life <= 0
+                    ) {
+
+                        particles.splice(
+                            i,
+                            1
+                        );
+
+                    }
+
+                }
+
+
+                requestAnimationFrame(
+                    render
+                );
+
+            }
+
+
+            render();
+
+        }
+
+
+        /* =====================================================
+           21. CATCH SUCCESS
+        ===================================================== */
+
+        function onCatchSuccess() {
+
+            if (!targetMonster) {
+                return;
+            }
+
+
+            monsterPos.opacity =
+                0;
+
+
+            collectedSet.add(
+                targetMonster.id
+            );
+
+
+            saveProgress();
+
+            updateProgressUI();
+
+
+            if (
+                typeof confetti ===
+                "function"
+            ) {
+
+                confetti({
+                    particleCount: 75,
+                    spread: 65,
+                    origin: {
+                        y: 0.6
+                    }
+                });
+
+            }
+
+
+            setTimeout(
+                showCatchModal,
+                500
+            );
+
+        }
+
+
+        function showCatchModal() {
+
+            if (!targetMonster) {
+                return;
+            }
+
+
+            document.getElementById(
+                "modalMonsterIcon"
+            ).innerText =
+                targetMonster.icon;
+
+
+            document.getElementById(
+                "modalMonsterName"
+            ).innerText =
+                targetMonster.name;
+
+
+            document.getElementById(
+                "modalMonsterTag"
+            ).innerText =
+                targetMonster.tag;
+
+
+            document.getElementById(
+                "modalMonsterDesc"
+            ).innerText =
+                targetMonster.desc;
+
+
+            document
+                .getElementById(
+                    "catchModal"
+                )
+                .classList.remove(
+                    "hidden"
+                );
+
+        }
+
+
+        function finishCatchAndNextScan() {
+
+            document
+                .getElementById(
+                    "catchModal"
+                )
+                .classList.add(
+                    "hidden"
+                );
+
+
+            if (
+                collectedSet.size >= 8
+            ) {
+
+                openHandbook();
+
+            } else {
+
+                returnToScanner();
+
+            }
+
+        }
+
+
+        /* =====================================================
+           22. HANDBOOK
+        ===================================================== */
+
+        function openHandbook() {
+
+            /*
+             * 打開圖鑑時停止相機
+             * 節省手機電力
+             */
+
+            if (
+                !document
+                    .getElementById(
+                        "handbookModal"
+                    )
+                    .classList.contains(
+                        "hidden"
+                    )
+            ) {
+
+                return;
+
+            }
+
+
+            renderHandbook();
+
+
+            document
+                .getElementById(
+                    "handbookModal"
+                )
+                .classList.remove(
+                    "hidden"
+                );
+
+        }
+
+
+        function closeHandbook() {
+
+            document
+                .getElementById(
+                    "handbookModal"
+                )
+                .classList.add(
+                    "hidden"
+                );
+
+        }
+
+
+        function renderHandbook() {
+
+            const grid =
+                document.getElementById(
+                    "handbookGrid"
+                );
+
+
+            grid.innerHTML = "";
+
+
+            MONSTERS.forEach(
+                monster => {
+
+                    const isCaught =
+                        collectedSet.has(
+                            monster.id
+                        );
+
+
+                    const card =
+                        document.createElement(
+                            "div"
+                        );
+
+
+                    card.className =
+                        `p-3 rounded-2xl border flex flex-col items-center justify-between text-center relative overflow-hidden transition ${
+                            isCaught
+                                ? "bg-gradient-to-b from-purple-900/80 to-black/90 border-spooky-orange/80 shadow-md"
+                                : "bg-black/50 border-gray-800 opacity-60"
+                        }`;
+
+
+                    card.innerHTML = `
+
+                        <div class="text-[10px] font-bold self-start px-2 py-0.5 rounded-full ${
+                            isCaught
+                                ? "bg-orange-500/30 text-orange-300 border border-orange-500/40"
+                                : "bg-gray-800 text-gray-500"
+                        }">
+
+                            #0${monster.id}
+
+                        </div>
+
+                        <div class="text-5xl my-2 ${
+                            isCaught
+                                ? "ar-monster-float"
+                                : "brightness-0 opacity-25"
+                        }">
+
+                            ${monster.icon}
+
+                        </div>
+
+                        <div class="w-full">
+
+                            <p class="text-xs font-bold ${
+                                isCaught
+                                    ? "text-spooky-orange"
+                                    : "text-gray-500"
+                            }">
+
+                                ${
+                                    isCaught
+                                        ? monster.name
+                                        : "????"
+                                }
+
+                            </p>
+
+                            <p class="text-[10px] text-gray-400 mt-0.5">
+
+                                ${
+                                    isCaught
+                                        ? monster.type
+                                        : "未捕捉"
+                                }
+
+                            </p>
+
+                        </div>
+
+                    `;
+
+
+                    grid.appendChild(
+                        card
+                    );
+
+                }
+            );
+
+        }
+
+
+        /* =====================================================
+           23. VOUCHER
+        ===================================================== */
+
+        function openVoucherModal() {
+
+            if (
+                collectedSet.size <
+                8
+            ) {
+
+                return;
+
+            }
+
+
+            document
+                .getElementById(
+                    "voucherModal"
+                )
+                .classList.remove(
+                    "hidden"
+                );
+
+        }
+
+
+        function closeVoucherModal() {
+
+            document
+                .getElementById(
+                    "voucherModal"
+                )
+                .classList.add(
+                    "hidden"
+                );
+
+        }
+
+
+        function verifyRedemption() {
+
+            const input =
+                document.getElementById(
+                    "staffPassInput"
+                );
+
+
+            const value =
+                input.value
+                    .trim()
+                    .toLowerCase();
+
+
+            if (
+                value === "8888" ||
+                value === "halloween"
+            ) {
+
+                isRedeemed =
+                    true;
+
+
+                saveProgress();
+
+                updateProgressUI();
+
+
+                alert(
+                    "🎉 工作人員核銷成功！請將獎品交付給玩家。"
+                );
+
+
+                input.value = "";
+
+            } else {
+
+                alert(
+                    "❌ 密碼錯誤（預設密碼：8888）。"
+                );
+
+            }
+
+        }
+
+
+        /* =====================================================
+           24. RESET
+        ===================================================== */
+
+        function confirmReset() {
+
+            if (
+                !confirm(
+                    "確定要清空所有已抓取紀錄嗎？"
+                )
+            ) {
+
+                return;
+
+            }
+
+
+            localStorage.removeItem(
+                "hw_ar_collected"
+            );
+
+            localStorage.removeItem(
+                "hw_ar_redeemed"
+            );
+
+            localStorage.removeItem(
+                "hw_ar_ticket_code"
+            );
+
+
+            collectedSet.clear();
+
+            isRedeemed =
+                false;
+
+
+            updateProgressUI();
+
+            renderHandbook();
+
+            returnToScanner();
+
+
+            alert(
+                "進度已重置！"
+            );
+
+        }
+
+
+        /* =====================================================
+           25. QR GENERATOR
+        ===================================================== */
+
+        function openQrModal() {
+
+            const container =
+                document.getElementById(
+                    "qrContainerGrid"
+                );
+
+
+            container.innerHTML = "";
+
+
+            MONSTERS.forEach(
+                monster => {
+
+                    const card =
+                        document.createElement(
+                            "div"
+                        );
+
+
+                    card.className =
+                        "bg-white text-black p-3 rounded-2xl flex flex-col items-center justify-center text-center shadow-md border border-purple-300";
+
+
+                    const qrDivId =
+                        `qr_canvas_${monster.id}`;
+
+
+                    card.innerHTML = `
+
+                        <p class="text-[11px] font-extrabold text-purple-950">
+
+                            #0${monster.id}
+                            ${monster.name}
+
+                        </p>
+
+                        <div
+                            id="${qrDivId}"
+                            class="my-2 p-1 bg-white rounded">
+                        </div>
+
+                        <p class="text-[9px] font-mono text-gray-500">
+
+                            代碼:
+                            ${monster.code}
+
+                        </p>
+
+                    `;
+
+
+                    container.appendChild(
+                        card
+                    );
+
+
+                    setTimeout(
+                        () => {
+
+                            const target =
+                                document.getElementById(
+                                    qrDivId
+                                );
+
+
+                            if (
+                                target &&
+                                typeof QRCode !==
+                                "undefined"
+                            ) {
+
+                                new QRCode(
+                                    target,
+                                    {
+                                        text:
+                                            monster.code,
+
+                                        width:
+                                            90,
+
+                                        height:
+                                            90,
+
+                                        colorDark:
+                                            "#1c0a35",
+
+                                        colorLight:
+                                            "#ffffff",
+
+                                        correctLevel:
+                                            QRCode.CorrectLevel.H
+                                    }
+                                );
+
+                            }
+
+                        },
+                        50
+                    );
+
+                }
+            );
+
+
+            document
+                .getElementById(
+                    "qrModal"
+                )
+                .classList.remove(
+                    "hidden"
+                );
+
+        }
+
+
+        function closeQrModal() {
+
+            document
+                .getElementById(
+                    "qrModal"
+                )
+                .classList.add(
+                    "hidden"
+                );
+
+        }
+
+    </script>
+
+</body>
+</html>
